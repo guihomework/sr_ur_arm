@@ -18,4 +18,4 @@ Accept a connection from a client in the robot and then send position commands a
 Connect to the real time state server e.g. ("192.168.0.1", 30003) and then receive and unpack the robot state  
 
 ### sr_ur_controller
-plug in controller for the controller loop in ros_ethercat
+plug in controller for the controller loop in ros_ethercat.
