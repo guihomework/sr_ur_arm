@@ -6,16 +6,16 @@ sr_ur_arm allows controlling a robot system with a Shadow Dexterous hand attache
 ### sr_ur_program_loader
 
 Connect with the socket to a server at the robot e.g. ("192.168.0.1", 30002). Then
-open a robot program file send it through the socket
+open a robot program file send it through the socket.
 
 ### sr_ur_event_loop
 Create and run the event loop in a thread with real time priority. 
 
 ### sr_ur_read_write
-Accept a connection from a client in the robot and then send position commands and check response
+Accept a connection from a client in the robot and then send position commands and check response.
 
 ### sr_ur_read_robot_state
-Connect to the real time state server e.g. ("192.168.0.1", 30003) and then receive and unpack the robot state  
+Connect to the real time state server e.g. ("192.168.0.1", 30003) and then receive and unpack the robot state.
 
 ### sr_ur_controller
 plug in controller for the controller loop in ros_ethercat.
