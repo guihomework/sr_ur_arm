@@ -38,12 +38,14 @@ const int ROBOT_STATE_PORT = 30003;
 
 // reuse the preallocated buffer for storing the robot state data
 // that the server in the robot at port ROBOT_STATE_PORT reports back to
-static uv_buf_t allocate_robot_state_buffer(uv_handle_t* state_stream, size_t)
+static void allocate_robot_state_buffer(uv_handle_t* state_stream, size_t, uv_buf_t* buf)
 {
   ROS_ASSERT(state_stream);
   ROS_ASSERT(state_stream->data);
+
   UrRobotStateClient *rs_client = (UrRobotStateClient*) state_stream->data;
-  return rs_client->buffer_;
+  buf->base = rs_client->buffer_.base;
+  buf->len = rs_client->buffer_.len;
 }
 
 // swap the endianess of a double (64bit)
@@ -65,25 +67,30 @@ static double ntohd(double *big_endian_number)
 
 // parse the robot state telegram into the containers that the controller can access
 // this is called whenever the server in the robot at ROBOT_STATE_PORT sends a telegram
-static void robot_state_received_cb(uv_stream_t* state_stream,
-                                    ssize_t      number_of_chars_received,
-                                    uv_buf_t     buffer)
+static void robot_state_received_cb(uv_stream_t*        state_stream,
+                                    ssize_t             number_of_chars_received,
+                                    const uv_buf_t*     buffer)
 {
   ROS_ASSERT(state_stream);
   ROS_ASSERT(state_stream->data);
   UrRobotStateClient *rs_client = (UrRobotStateClient*) state_stream->data;
 
-  ROS_ASSERT(buffer.base);
+  ROS_ASSERT(buffer->base);
 
   pthread_mutex_lock(&rs_client->ur_->robot_state_mutex_);
+  ROS_INFO("Receive state %zd", number_of_chars_received);
+  if (number_of_chars_received < 0)
+  {
+    ROS_INFO("Receive error %s: %s", uv_err_name(number_of_chars_received), uv_strerror(number_of_chars_received));
+  }
   char *pdata;
   if (sizeof(ur_robot_state) == number_of_chars_received)
   {
-    pdata = buffer.base;
+    pdata = buffer->base;
   }
   else if (sizeof(ur_short_robot_state) + sizeof(ur_robot_state) <= number_of_chars_received)
   {
-    pdata = buffer.base + sizeof(ur_robot_state);
+    pdata = buffer->base + sizeof(ur_robot_state);
   }
   else
   {
@@ -136,7 +143,7 @@ static void robot_state_client_connected_cb(uv_connect_t* connection_request, in
 
   rs_client->buffer_.base = (char*)malloc(2*sizeof(ur_robot_state));
   rs_client->buffer_.len  = 2*sizeof(ur_robot_state);
-
+  ROS_WARN("UrArmController buffer addr %p ", rs_client->buffer_.base);
   status = uv_read_start(connection_request->handle,
                          allocate_robot_state_buffer,
                          robot_state_received_cb);
@@ -151,6 +158,7 @@ void UrRobotStateClient::start()
 
   tcp_stream_.data         = (void*) this;
   connection_request_.data = (void*) this;
+  ROS_WARN("UrRobotStateClient addr %p ", this);
 
   pthread_mutex_init(&ur_->robot_state_mutex_, NULL);
 
@@ -159,10 +167,11 @@ void UrRobotStateClient::start()
   ROS_ASSERT(0 == status);
   uv_tcp_nodelay(&tcp_stream_, 0);
 
-  sockaddr_in robot_state_client_address = uv_ip4_addr(ur_->robot_address_, ROBOT_STATE_PORT);
+  sockaddr_in robot_state_client_address;
+  uv_ip4_addr(ur_->robot_address_, ROBOT_STATE_PORT, &robot_state_client_address);
   status = uv_tcp_connect(&connection_request_,
                           &tcp_stream_,
-                          robot_state_client_address,
+                          (sockaddr *) &robot_state_client_address,
                           robot_state_client_connected_cb);
   ROS_ASSERT(0 == status);
 }

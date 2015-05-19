@@ -10,6 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 include_directories(include ${catkin_INCLUDE_DIRS})
+link_directories(/usr/local/lib)
 
 add_library(sr_ur_controller
 	src/sr_ur_driver.cpp

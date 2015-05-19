@@ -44,13 +44,14 @@ const size_t  RESPONSE_SIZE      = 512;
 
 // reuse the preallocated buffer for storing the robot's response
 // when a command is send from the server in the host to the client in the robot
-static uv_buf_t allocate_response_buffer(uv_handle_t* command_stream, size_t)
+static void allocate_response_buffer(uv_handle_t* command_stream, size_t, uv_buf_t* buf)
 {
   ROS_ASSERT(command_stream);
   ROS_ASSERT(command_stream->data);
 
   UrControlServer *ctrl_server = (UrControlServer*)command_stream->data;
-  return ctrl_server->response_buffer_;
+  buf->base = ctrl_server->response_buffer_.base;
+  buf->len = ctrl_server->response_buffer_.len;
 }
 
 // this is called after a new non-servo command has been sent to the robot
@@ -75,52 +76,52 @@ static void servo_command_sent_cb(uv_write_t* write_request, int status)
 }
 
 // Called when the robot replies to a command that was sent earlier from the server to the host
-static void received_response_cb(uv_stream_t* command_stream,
-                                 ssize_t      number_of_chars_received,
-                                 uv_buf_t     buffer)
+static void received_response_cb(uv_stream_t*    command_stream,
+                                 ssize_t         number_of_chars_received,
+                                 const uv_buf_t* buffer)
 {
   ROS_ASSERT(command_stream);
   ROS_ASSERT(command_stream->data);
 
   UrControlServer *ctrl_server = (UrControlServer*)command_stream->data;
   ROS_ASSERT(command_stream == (uv_stream_t*)&ctrl_server->command_stream_);
-  ROS_ASSERT(buffer.base);
+  ROS_ASSERT(buffer->base);
 
   // the robot occasionally sends meaningless empty messages without further consequences
-  if (number_of_chars_received < 2 || !isupper(buffer.base[0]))
+  if (number_of_chars_received < 2 || !isupper(buffer->base[0]))
   {
     return;
   }
 
-  buffer.base[number_of_chars_received] = '\0';
-  ROS_INFO("%s robot replied : %s", ctrl_server->ur_->robot_side_, buffer.base);
+  buffer->base[number_of_chars_received] = '\0';
+  ROS_INFO("%s robot replied : %s", ctrl_server->ur_->robot_side_, buffer->base);
 
   // During startup these messages are expected in this order
-  if (strcmp(buffer.base, "Connected") == 0)
+  if (strcmp(buffer->base, "Connected") == 0)
   {
     ROS_INFO("Asking the %s robot to stop", ctrl_server->ur_->robot_side_);
     ctrl_server->send_message(MSG_STOPJ);
     return;
   }
 
-  if (!ctrl_server->ur_->robot_ready_to_move_ && strcmp(buffer.base, "Stop") == 0)
+  if (!ctrl_server->ur_->robot_ready_to_move_ && strcmp(buffer->base, "Stop") == 0)
   {
     ROS_INFO("Asking %s robot to reset the teach mode", ctrl_server->ur_->robot_side_);
     ctrl_server->send_teach_mode_command(0);
     return;
   }
 
-  if (!ctrl_server->ur_->robot_ready_to_move_ && strcmp(buffer.base, "Teach mode OFF") == 0)
+  if (!ctrl_server->ur_->robot_ready_to_move_ && strcmp(buffer->base, "Teach mode OFF") == 0)
   {
     ROS_WARN("%s robot is ready to receive servo commands", ctrl_server->ur_->robot_side_);
-    memset(buffer.base, 0, RESPONSE_SIZE);
+    memset(buffer->base, 0, RESPONSE_SIZE);
     ctrl_server->ur_->robot_ready_to_move_ = true;
   }
 
-  if (strcmp(buffer.base, "Teach mode ON") == 0)
+  if (strcmp(buffer->base, "Teach mode ON") == 0)
   {
     ROS_WARN("%s robot is now in teach mode", ctrl_server->ur_->robot_side_);
-    memset(buffer.base, 0, RESPONSE_SIZE);
+    memset(buffer->base, 0, RESPONSE_SIZE);
   }
 }
 
@@ -163,8 +164,9 @@ void UrControlServer::start()
   uv_tcp_nodelay(&server_stream_, 0);
 
   // assign port to zero and let the OS select an available one
-  sockaddr_in server_address = uv_ip4_addr(ur_->host_address_, 0);
-  status = uv_tcp_bind(&server_stream_, server_address);
+  sockaddr_in server_address;
+  uv_ip4_addr(ur_->host_address_, 0, &server_address);
+  status = uv_tcp_bind(&server_stream_, (sockaddr *) &server_address, 0);
   ROS_ASSERT(0 == status);
 
   // get the port that the OS assigned
@@ -240,7 +242,7 @@ void UrControlServer::send_servo_command()
     telegram->commanded_positions_[i] =
         htonl((int32_t)(MULT_JOINTSTATE * ur_->target_positions_[i]));
   }
-  ROS_INFO("buffer addr: %p length: %zu", command_buffer_.base, command_buffer_.len);
+//  ROS_INFO("buffer addr: %p length: %zu", command_buffer_.base, command_buffer_.len);
   int status = uv_write(&(write_request_pool_.write_request_[write_request_pool_.next_]),
                         (uv_stream_t*)&command_stream_,
                         &command_buffer_,
@@ -248,21 +250,15 @@ void UrControlServer::send_servo_command()
                         servo_command_sent_cb);
   if (status==0)
   {
-    int nbuff = write_request_pool_.write_request_[write_request_pool_.next_].bufcnt;
-
-//    ROS_ERROR("[%zu] write req nbuff: %d", write_request_pool_.next_, nbuff);
-    uv_buf_t* ptr1 = &(write_request_pool_.write_request_[write_request_pool_.next_].bufs[0]);
-    ROS_ERROR("[%zu] write req nbuff: %d addr : %p", write_request_pool_.next_, nbuff, ptr1);
-//    uv_buf_t* ptr2 = write_request_pool_.write_request_[write_request_pool_.next_].bufsml;
-//    ROS_ERROR("[%zu] write req nbuff: %d addr : %p", write_request_pool_.next_, nbuff, ptr2);
+    int nbuff = write_request_pool_.write_request_[write_request_pool_.next_].nbufs;
     char* ptr = write_request_pool_.write_request_[write_request_pool_.next_].bufsml[0].base;
     size_t len = write_request_pool_.write_request_[write_request_pool_.next_].bufsml[0].len;
     ROS_ERROR("[%zu] write req addr: %p nbuff: %d addr : %p length: %zu", write_request_pool_.next_, &(write_request_pool_.write_request_[write_request_pool_.next_]), nbuff, ptr, len);
   }
-  for (size_t j = 0; j < WRITE_POOL_SIZE; ++j)
-  {
-    ROS_INFO("[%zu] write req nbuff: %d addr : %p length: %zu", j, write_request_pool_.write_request_[j].bufcnt, write_request_pool_.write_request_[j].bufsml[0].base, write_request_pool_.write_request_[j].bufsml[0].len);
-  }
+//  for (size_t j = 0; j < WRITE_POOL_SIZE; ++j)
+//  {
+//    ROS_INFO("[%zu] write req nbuff: %d addr : %p length: %zu", j, write_request_pool_.write_request_[j].nbufs, write_request_pool_.write_request_[j].bufsml[0].base, write_request_pool_.write_request_[j].bufsml[0].len);
+//  }
   write_request_pool_.inc();
   ROS_WARN("Send Next: %zu Size: %zu", write_request_pool_.next_, write_request_pool_.size_);
   pthread_mutex_unlock(&ur_->write_mutex_);
