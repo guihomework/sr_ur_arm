@@ -78,7 +78,7 @@ static void robot_state_received_cb(uv_stream_t*        state_stream,
   ROS_ASSERT(buffer->base);
 
   pthread_mutex_lock(&rs_client->ur_->robot_state_mutex_);
-  ROS_INFO("Receive state %zd", number_of_chars_received);
+
   if (number_of_chars_received < 0)
   {
     ROS_INFO("Receive error %s: %s", uv_err_name(number_of_chars_received), uv_strerror(number_of_chars_received));
