@@ -242,7 +242,7 @@ void UrControlServer::send_servo_command()
     telegram->commanded_positions_[i] =
         htonl((int32_t)(MULT_JOINTSTATE * ur_->target_positions_[i]));
   }
-//  ROS_INFO("buffer addr: %p length: %zu", command_buffer_.base, command_buffer_.len);
+  ROS_ERROR("before uv_write addr: %p", &(write_request_pool_.write_request_[write_request_pool_.next_]));
   int status = uv_write(&(write_request_pool_.write_request_[write_request_pool_.next_]),
                         (uv_stream_t*)&command_stream_,
                         &command_buffer_,
