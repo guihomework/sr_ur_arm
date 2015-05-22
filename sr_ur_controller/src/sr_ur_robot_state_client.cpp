@@ -143,7 +143,7 @@ static void robot_state_client_connected_cb(uv_connect_t* connection_request, in
 
   rs_client->buffer_.base = (char*)malloc(2*sizeof(ur_robot_state));
   rs_client->buffer_.len  = 2*sizeof(ur_robot_state);
-  ROS_WARN("UrArmController buffer addr %p ", rs_client->buffer_.base);
+
   status = uv_read_start(connection_request->handle,
                          allocate_robot_state_buffer,
                          robot_state_received_cb);
@@ -158,7 +158,6 @@ void UrRobotStateClient::start()
 
   tcp_stream_.data         = (void*) this;
   connection_request_.data = (void*) this;
-  ROS_WARN("UrRobotStateClient addr %p ", this);
 
   pthread_mutex_init(&ur_->robot_state_mutex_, NULL);
 
