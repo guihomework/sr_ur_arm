@@ -103,10 +103,11 @@ static void file_loaded_cb(uv_fs_t *file_request)
   }
   else
   {
-    sockaddr_in server_address = uv_ip4_addr(urpl->ur_->robot_address_, ROBOT_PORT);
+    sockaddr_in server_address;
+    uv_ip4_addr(urpl->ur_->robot_address_, ROBOT_PORT, &server_address);
     int status = uv_tcp_connect(&urpl->connect_to_robot_request,
                                 &urpl->send_file_stream,
-                                server_address,
+                                (const struct sockaddr*) &server_address,
                                 client_connected_cb);
     ROS_ASSERT(0 == status);
   }
@@ -126,7 +127,7 @@ static void file_opened_cb(uv_fs_t *file_request)
   int status = uv_fs_read(urpl->ur_->el_->get_event_loop(),
                           file_request,
                           file_request->result,
-                          urpl->file_buffer.base,
+                          &(urpl->file_buffer),
                           urpl->file_buffer.len,
                           -1,
                           file_loaded_cb);

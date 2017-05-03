@@ -38,12 +38,12 @@ const int ROBOT_STATE_PORT = 30003;
 
 // reuse the preallocated buffer for storing the robot state data
 // that the server in the robot at port ROBOT_STATE_PORT reports back to
-static uv_buf_t allocate_robot_state_buffer(uv_handle_t* state_stream, size_t)
+static void allocate_robot_state_buffer(uv_handle_t* state_stream, size_t, uv_buf_t* buf)
 {
   ROS_ASSERT(state_stream);
   ROS_ASSERT(state_stream->data);
   UrRobotStateClient *rs_client = (UrRobotStateClient*) state_stream->data;
-  return rs_client->buffer_;
+  buf = &(rs_client->buffer_);
 }
 
 // swap the endianess of a double (64bit)
@@ -67,13 +67,13 @@ static double ntohd(double *big_endian_number)
 // this is called whenever the server in the robot at ROBOT_STATE_PORT sends a telegram
 static void robot_state_received_cb(uv_stream_t* state_stream,
                                     ssize_t      number_of_chars_received,
-                                    uv_buf_t     buffer)
+                                    const uv_buf_t*     buffer)
 {
   ROS_ASSERT(state_stream);
   ROS_ASSERT(state_stream->data);
   UrRobotStateClient *rs_client = (UrRobotStateClient*) state_stream->data;
 
-  ROS_ASSERT(buffer.base);
+  ROS_ASSERT(buffer->base);
 
   pthread_mutex_lock(&rs_client->ur_->robot_state_mutex_);
   char *pdata;
@@ -84,24 +84,24 @@ static void robot_state_received_cb(uv_stream_t* state_stream,
     {
       ROS_WARN_STREAM("UR robot state protocol v3.0 or v3.1");
       rs_client->protocol_version = "3.0";
-      pdata = buffer.base;
+      pdata = buffer->base;
     }
     else if (sizeof(ur_robot_state) == number_of_chars_received)
     {
       ROS_WARN_STREAM("UR robot state protocol v3.2");
       rs_client->protocol_version = "3.2";
-      pdata = buffer.base;
+      pdata = buffer->base;
     }
   }
   else if (rs_client->protocol_version == "3.0")
   {
     if (sizeof(ur_robot_state_v3_0) == number_of_chars_received)
     {
-      pdata = buffer.base;
+      pdata = buffer->base;
     }
     else if (sizeof(ur_short_robot_state) + sizeof(ur_robot_state_v3_0) <= number_of_chars_received)
     {
-      pdata = buffer.base + sizeof(ur_robot_state_v3_0);
+      pdata = buffer->base + sizeof(ur_robot_state_v3_0);
     }
     else
     {
@@ -113,11 +113,11 @@ static void robot_state_received_cb(uv_stream_t* state_stream,
   {
     if (sizeof(ur_robot_state) == number_of_chars_received)
     {
-      pdata = buffer.base;
+      pdata = buffer->base;
     }
     else if (sizeof(ur_short_robot_state) + sizeof(ur_robot_state) <= number_of_chars_received)
     {
-      pdata = buffer.base + sizeof(ur_robot_state);
+      pdata = buffer->base + sizeof(ur_robot_state);
     }
     else
     {
@@ -194,10 +194,11 @@ void UrRobotStateClient::start()
   ROS_ASSERT(0 == status);
   uv_tcp_nodelay(&tcp_stream_, 0);
 
-  sockaddr_in robot_state_client_address = uv_ip4_addr(ur_->robot_address_, ROBOT_STATE_PORT);
+  sockaddr_in robot_state_client_address;
+  uv_ip4_addr(ur_->robot_address_, ROBOT_STATE_PORT, &robot_state_client_address);
   status = uv_tcp_connect(&connection_request_,
                           &tcp_stream_,
-                          robot_state_client_address,
+                          (const struct sockaddr*) &robot_state_client_address,
                           robot_state_client_connected_cb);
   ROS_ASSERT(0 == status);
 }

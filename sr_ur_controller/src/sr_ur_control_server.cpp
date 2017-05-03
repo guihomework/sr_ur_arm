@@ -45,13 +45,13 @@ const size_t  RESPONSE_SIZE      = 512;
 
 // reuse the preallocated buffer for storing the robot's response
 // when a command is send from the server in the host to the client in the robot
-static uv_buf_t allocate_response_buffer(uv_handle_t* command_stream, size_t)
+static void allocate_response_buffer(uv_handle_t* command_stream, size_t, uv_buf_t* buf)
 {
   ROS_ASSERT(command_stream);
   ROS_ASSERT(command_stream->data);
 
   UrControlServer *ctrl_server = (UrControlServer*)command_stream->data;
-  return ctrl_server->response_buffer_;
+  buf = &(ctrl_server->response_buffer_);
 }
 
 // this is called after a new non-servo command has been sent to the robot
@@ -77,50 +77,50 @@ static void servo_command_sent_cb(uv_write_t* write_request, int status)
 // Called when the robot replies to a command that was sent earlier from the server to the host
 static void received_response_cb(uv_stream_t* command_stream,
                                  ssize_t      number_of_chars_received,
-                                 uv_buf_t     buffer)
+                                 const uv_buf_t*     buffer)
 {
   ROS_ASSERT(command_stream);
   ROS_ASSERT(command_stream->data);
 
   UrControlServer *ctrl_server = (UrControlServer*)command_stream->data;
   ROS_ASSERT(command_stream == (uv_stream_t*)&ctrl_server->command_stream_);
-  ROS_ASSERT(buffer.base);
+  ROS_ASSERT(buffer->base);
 
   // the robot occasionally sends meaningless empty messages without further consequences
-  if (number_of_chars_received < 2 || !isupper(buffer.base[0]))
+  if (number_of_chars_received < 2 || !isupper(buffer->base[0]))
   {
     return;
   }
 
-  buffer.base[number_of_chars_received] = '\0';
-  ROS_INFO("%s robot replied : %s", ctrl_server->ur_->robot_side_, buffer.base);
+  buffer->base[number_of_chars_received] = '\0';
+  ROS_INFO("%s robot replied : %s", ctrl_server->ur_->robot_side_, buffer->base);
 
   // During startup these messages are expected in this order
-  if (strcmp(buffer.base, "Connected") == 0)
+  if (strcmp(buffer->base, "Connected") == 0)
   {
     ROS_INFO("Asking the %s robot to stop", ctrl_server->ur_->robot_side_);
     ctrl_server->send_message(MSG_STOPJ);
     return;
   }
 
-  if (!ctrl_server->ur_->robot_ready_to_move_ && strcmp(buffer.base, "Stop") == 0)
+  if (!ctrl_server->ur_->robot_ready_to_move_ && strcmp(buffer->base, "Stop") == 0)
   {
     ROS_INFO("Asking %s robot to reset the teach mode", ctrl_server->ur_->robot_side_);
     ctrl_server->send_teach_mode_command(0);
     return;
   }
 
-  if (!ctrl_server->ur_->robot_ready_to_move_ && strcmp(buffer.base, "Teach mode OFF") == 0)
+  if (!ctrl_server->ur_->robot_ready_to_move_ && strcmp(buffer->base, "Teach mode OFF") == 0)
   {
     ROS_WARN("%s robot is ready to receive servo commands", ctrl_server->ur_->robot_side_);
-    memset(buffer.base, 0, RESPONSE_SIZE);
+    memset(buffer->base, 0, RESPONSE_SIZE);
     ctrl_server->ur_->robot_ready_to_move_ = true;
   }
 
-  if (strcmp(buffer.base, "Teach mode ON") == 0)
+  if (strcmp(buffer->base, "Teach mode ON") == 0)
   {
     ROS_WARN("%s robot is now in teach mode", ctrl_server->ur_->robot_side_);
-    memset(buffer.base, 0, RESPONSE_SIZE);
+    memset(buffer->base, 0, RESPONSE_SIZE);
   }
 }
 
@@ -153,7 +153,7 @@ static void received_connection_cb(uv_stream_t* server_stream, int status)
 // sends a servo command.
 // this callback is called from libuv main thread in response to uv_async_send calls made from other threads
 // uv_async_send is the only thread safe libuv call
-static void send_servo_command_async_cb(uv_async_t* handle, int status)
+static void send_servo_command_async_cb(uv_async_t* handle)
 {
   UrControlServer *ctrl_server = (UrControlServer*)handle->data;
   ROS_ASSERT(ctrl_server->ur_);
@@ -184,7 +184,8 @@ static void send_servo_command_async_cb(uv_async_t* handle, int status)
   ctrl_server->write_request_pool_.inc();
 
   pthread_mutex_unlock(&ctrl_server->ur_->write_mutex_);
-  ROS_ASSERT(0 == status);
+  // TODO: how to replace that now that status is not passed anymore ?
+  // ROS_ASSERT(0 == status);
 }
 
 void UrControlServer::start()
@@ -200,8 +201,9 @@ void UrControlServer::start()
   uv_tcp_nodelay(&server_stream_, 0);
 
   // assign port to zero and let the OS select an available one
-  sockaddr_in server_address = uv_ip4_addr(ur_->host_address_, 0);
-  status = uv_tcp_bind(&server_stream_, server_address);
+  sockaddr_in server_address;
+  uv_ip4_addr(ur_->host_address_, 0, &server_address);
+  status = uv_tcp_bind(&server_stream_,  (const struct sockaddr*) &server_address, 0);
   ROS_ASSERT(0 == status);
 
   // get the port that the OS assigned
